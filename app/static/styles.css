@@ -236,18 +236,6 @@ body {
 
 tbody td { height: var(--cell-h); }
 
-td.daycol[data-daylink] { cursor: pointer; }
-td.daycol[data-daylink]::after {
-  content: "›";
-  position: absolute;
-  right: 1px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 11px;
-  color: #b6ae9d;
-}
-td.daycol[data-daylink]:active { background: #f3ecdd; }
-
 td.daycol {
   font-size: 9px;
   font-weight: 700;
@@ -553,10 +541,6 @@ tfoot td.daycol { font-size: 8.5px; letter-spacing: .04em; }
 .cv-sheet { padding: 12px 12px 14px; }
 .cv-sheet .cv-card { margin: 0; }
 .cv-done { width: 100%; margin-top: 10px; padding: 11px 12px; font-size: 13px; }
-.backpill { font-size: 11px; padding: 7px 11px; flex: 0 0 auto; }
-
-.dayhead .dh-mid { text-align: center; }
-
 /* ---------------------------------------------------------------- dialog */
 
 .dlg {
@@ -751,100 +735,6 @@ body.barshown .page { padding-bottom: 104px; }
 td.cell.active { outline: 2px solid var(--ink); outline-offset: -2px; }
 td.cell.over.active { outline-color: var(--danger); }
 
-/* ---------------------------------------------------------------- day view */
-
-.dayview { padding: 2px 10px 12px; }
-.dayhead {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 2px 10px;
-}
-.dayhead .dh-mid { flex: 1; min-width: 0; }
-.dayhead .dh-mid strong {
-  display: block;
-  font-size: 15px;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-}
-.dayhead .dh-mid span { font-size: 11px; color: var(--muted); }
-.daynav { display: flex; gap: 5px; }
-.daynav button {
-  width: 34px;
-  height: 34px;
-  border: 1px solid var(--line-strong);
-  background: var(--card);
-  border-radius: 9px;
-  font-size: 16px;
-  color: var(--ink);
-  cursor: pointer;
-}
-.daynav button:disabled { opacity: .3; }
-
-.cellrows { list-style: none; margin: 0; padding: 0; }
-.cellrow {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  grid-template-areas:
-    "head body"
-    "acts acts";
-  gap: 2px 10px;
-  align-items: center;
-  border: 1px solid var(--line);
-  border-left: 5px solid var(--tint);
-  border-radius: 10px;
-  background: var(--card);
-  padding: 8px 10px;
-  margin-bottom: 7px;
-  cursor: pointer;
-  touch-action: manipulation;
-}
-.cellrow.over { border-color: #c9503f; border-left-color: #c9503f; background: var(--danger-bg); }
-.cr-head { grid-area: head; display: flex; flex-direction: column; gap: 1px; }
-.cr-name { font-size: 12.5px; font-weight: 700; }
-.cr-goal {
-  font-size: 10px;
-  letter-spacing: .05em;
-  text-transform: uppercase;
-  color: #7c7668;
-}
-.cr-body { grid-area: body; display: flex; align-items: center; gap: 9px; }
-.cr-count {
-  font-size: 24px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  min-width: 28px;
-  text-align: right;
-}
-.cellrow.over .cr-count { color: var(--danger); }
-.cr-tally { display: flex; align-items: center; height: 18px; color: #33404a; opacity: .6; }
-.cr-tally .tally { height: 14px; margin-top: 0; }
-.cr-tally .tally .g i { height: 14px; width: 2px; }
-.cr-tally .tally .g b { height: 2px; }
-
-.cr-actions { grid-area: acts; display: flex; gap: 5px; align-items: center; margin-top: 6px; }
-.sbtn {
-  min-width: 40px;
-  height: 34px;
-  padding: 0 9px;
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  background: #fff;
-  color: var(--ink);
-  font: inherit;
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1;
-  cursor: pointer;
-}
-.sbtn:active { background: #f3ecdd; }
-.sbtn.wide { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
-.sbtn.zoom { margin-left: auto; font-size: 18px; background: #faf5ea; }
-.cellrow.over .sbtn { border-color: #e0b3aa; }
-
-.dayact { margin-top: 14px; }
-.dayact .actcard { margin-bottom: 0; }
-
 /* ---------------------------------------------------------------- cell view */
 
 .cellview { margin: 4px 12px 14px; }
@@ -942,9 +832,6 @@ td.cell.over.active { outline-color: var(--danger); }
 }
 
 @media (min-width: 880px) {
-  .cellrow { grid-template-columns: 220px 1fr auto; grid-template-areas: "head body acts"; }
-  .cr-actions { margin-top: 0; }
-  .cellrow { padding: 10px 12px; }
   .cv-card { max-width: 460px; margin: 0 auto; }
   .cv-strip { max-width: 460px; margin: 12px auto 0; }
 }

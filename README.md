@@ -34,33 +34,28 @@ SQLite file is the only state — back up `data/tracker.db` (plus `-wal`).
   button for corrections, and a Lock button to close it again.
 - A cell turns red when its count exceeds that column's goal.
 
-### Three levels
+### One screen
 
-1. **Week** (default) — all 8 columns × 7 days.
-2. **Day** — tap a day label (`MON 19`) on the left to zoom into that one day:
-   every column as a row with its count, tallies, goal, and explicit
-   `−` `+` `Reset` `⤢` controls, plus that day's activity box.
-3. **Cell** — `⤢` on a cell (or in a day row) opens a popup with the big count,
-   big `−`/`+`, `Reset to 0`, and that column's whole week as a strip you can tap
-   through. `Done` / Escape / tapping outside closes it.
+The week grid is the whole app: eight columns × seven days, the plan goals on
+top, that week's activity underneath, then the weight/waist bookends.
 
-Back to the full week: the **‹ All days** button in the day header (Escape also
-works). The week arrows stay put at every level.
+Tap a cell and a bar slides up naming it — `WED · VEGGIES 7` — with `−` `+`
+`Reset` and `⤢`. That bar is the editing surface, and the tapped cell gets an
+outline so there is never any doubt which cell it belongs to. Tapping outside
+dismisses it.
 
-### Editing a tally
+`⤢` opens that cell as a popup: big count, big `−`/`+`, `Reset to 0`, and that
+column's whole week as a tappable strip. `Done`, Escape, or a tap outside closes
+it. There are no zoom levels and no day view — the grid never goes away.
 
 | Action | Effect |
 | --- | --- |
-| tap a cell (week) or a row (day) | +1 |
-| `−` on the cell toolbar | −1 |
-| `+` | +1 |
+| tap a cell | +1 |
+| `−` / `+` in the bar | −1 / +1 |
 | `Reset` | back to zero |
 | `⤢` | open that cell's popup |
 
-Tapping a cell in the week grid raises a bottom toolbar naming that cell
-(`WED · VEGGIES 7`) with `−` `+` `Reset` `⤢`, so a correction never depends on
-gesture timing. There is
-no double-tap or long-press behaviour.
+Nothing depends on gesture timing: no double-tap, no long-press.
 
 ## API
 

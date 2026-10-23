@@ -3,7 +3,8 @@
    Tapping a cell adds a tally; every cell carries explicit -/+/reset controls. */
 
 const S = { week: null, current: null, today: null, settings: {} };
-const V = { view: "week", day: 0, col: null };   // col = the cell currently in the popup
+/* One screen: the week grid. A tapped cell gets the bottom toolbar; ⤢ opens
+   that cell in a popup. There are no zoom levels. */
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) =>
@@ -56,30 +57,10 @@ async function load(weekStart, opts = {}) {
 
 /* ------------------------------------------------------------------ views */
 
-const colMeta = (key) => S.week.columns.find((c) => c.key === key) || {};
-const colLabel = (key) => colMeta(key).label || key;
-const colColor = (key) => colMeta(key).color || "#fff";
-const countOf = (day, col) => S.week.days[day].cells[col];
-
-function setView(view, day) {
-  if (Number.isFinite(day)) V.day = Math.max(0, Math.min(6, day));
-  V.view = view === "day" ? "day" : "week";
-  hideBar();
-  closeGoalPop();
-  closeCellDlg();
-  render();
-  window.scrollTo({ top: 0, behavior: "smooth" });
-}
-
 function render() {
   renderHeader();
   renderNav();
-
-  const root = $("#viewRoot");
-  if (V.view === "day") renderDay(root);
-  else renderWeek(root);
-
-  $("#weightsCard").hidden = V.view !== "week";
+  renderWeek($("#viewRoot"));
   renderWeights();
   renderLock();
 }
@@ -107,6 +88,11 @@ function renderNav() {
   $("#nextWeek").disabled = true;
   $("#todayBtn").hidden = S.week.is_current;
 }
+
+const colMeta = (key) => S.week.columns.find((c) => c.key === key) || {};
+const colLabel = (key) => colMeta(key).label || key;
+const colColor = (key) => colMeta(key).color || "#fff";
+const countOf = (day, col) => S.week.days[day].cells[col];
 
 function tallyHTML(n, max = 10) {
   if (n <= 0 || n > max) return "";
@@ -153,9 +139,7 @@ function renderWeek(root) {
 
   for (const d of S.week.days) {
     html += `<tr class="${d.is_today ? "todayrow" : ""}">
-      <td class="daycol" data-daylink="${d.day}" role="button" tabindex="0"
-          aria-label="Zoom into ${d.label} ${d.dom}">${d.label}
-        <span class="dom">${d.dom}</span></td>`;
+      <td class="daycol">${d.label}<span class="dom">${d.dom}</span></td>`;
     for (const c of cols) {
       const n = d.cells[c.key];
       const over = d.over[c.key];
@@ -180,7 +164,7 @@ function renderWeek(root) {
   for (const c of cols) html += `<td>${S.week.col_totals[c.key] || ""}</td>`;
   html += `<td class="actcol"></td></tr></tfoot></table>`;
 
-  html += `<p class="gridhint">Tap a cell to add · tap a day or ⤢ to zoom in</p>`;
+  html += `<p class="gridhint">Tap a cell to add · use the bar below to correct it</p>`;
 
   html += `<div class="actwrap"><h2 class="sechead">Activity</h2><div class="actcards">`;
   for (const d of S.week.days) {
@@ -216,74 +200,12 @@ function disableInputs(root) {
   root.querySelectorAll("input, .int button").forEach((n) => (n.disabled = true));
 }
 
-/* -------------------------------------------------------------- day view */
-
-function renderDay(root) {
-  const d = S.week.days[V.day];
-  const cols = S.week.columns;
-
-  let html = `<div class="dayview">
-    <header class="dayhead">
-      <button type="button" class="pill backpill" data-nav="week" aria-label="Back to the full week">‹ All days</button>
-      <div class="dh-mid"><strong>${d.label} ${d.dom}</strong>
-        <span>${new Date(d.date + "T00:00:00").toLocaleDateString(undefined,
-          { weekday: "long", month: "short", day: "numeric" })}</span></div>
-      <div class="daynav">
-        <button type="button" data-dayprev aria-label="Previous day"
-          ${V.day === 0 ? "disabled" : ""}>‹</button>
-        <button type="button" data-daynext aria-label="Next day"
-          ${V.day === 6 ? "disabled" : ""}>›</button>
-      </div>
-    </header>
-    <ul class="cellrows">`;
-
-  for (const c of cols) {
-    const n = d.cells[c.key];
-    const over = d.over[c.key];
-    html += `<li class="cellrow${over ? " over" : ""}" data-day="${d.day}"
-      data-col="${c.key}" style="--tint:${c.color}">
-      <div class="cr-head"><span class="cr-name">${esc(c.label)}</span>
-        <span class="cr-goal">goal ${S.week.goals[c.key]}</span></div>
-      <div class="cr-body"><span class="cr-count">${n}</span>
-        <span class="cr-tally">${tallyHTML(n)}</span></div>
-      <div class="cr-actions">
-        <button type="button" class="sbtn" data-act="dec"
-          aria-label="Decrease ${esc(c.label)}">−</button>
-        <button type="button" class="sbtn" data-act="inc"
-          aria-label="Increase ${esc(c.label)}">+</button>
-        <button type="button" class="sbtn wide" data-act="zero"
-          aria-label="Reset ${esc(c.label)} to zero">Reset</button>
-        <button type="button" class="sbtn zoom" data-act="zoom"
-          aria-label="Open ${esc(c.label)} cell">⤢</button>
-      </div>
-    </li>`;
-  }
-
-  html += `</ul><div class="dayact"><h2 class="sechead">Activity</h2>
-    <div class="actcard actcard-day${d.activity_done ? " done" : ""}" data-day="${d.day}">
-      <div class="ah"><span>${d.label} ${d.dom}</span>
-        <span class="ai">${d.activity.intensity ? "intensity " + d.activity.intensity : ""}</span></div>
-      <div class="a1">
-        <input class="t" data-field="time" inputmode="numeric" enterkeyhint="done"
-          maxlength="5" placeholder="00:45" value="${esc(d.activity.time)}"
-          aria-label="Time HH:MM">
-        <input class="k" data-field="type" maxlength="120" placeholder="walk"
-          value="${esc(d.activity.type)}" aria-label="Activity type">
-      </div>
-      <div class="int">${intensityButtons(d)}</div>
-    </div></div></div>`;
-
-  root.innerHTML = html;
-  if (S.week.locked) disableInputs(root);
-}
-
 /* ------------------------------------------------------------- cell popup */
 
 const cellDlg = $("#cellDlg");
 
 function openCellDlg(day, col) {
   if (!S.week || S.week.goals[col] == null) return;
-  V.col = col;
   const d = S.week.days[day];
   const n = d.cells[col];
   const goal = S.week.goals[col];
@@ -334,7 +256,6 @@ function bindDlgLock() {
 
 function closeCellDlg() {
   if (cellDlg.open) cellDlg.close();
-  V.col = null;
 }
 
 cellDlg.addEventListener("click", (e) => {
@@ -344,7 +265,7 @@ cellDlg.addEventListener("click", (e) => {
     e.clientY < r.top || e.clientY > r.bottom;
   if (outside) closeCellDlg();
 });
-cellDlg.addEventListener("close", () => { V.col = null; });
+cellDlg.addEventListener("close", () => {});
 
 /* ------------------------------------------------------------------ counts */
 
@@ -388,15 +309,6 @@ function paintCounts(day, col) {
     td.classList.remove("pop");
     void td.offsetWidth;
     td.classList.add("pop");
-  }
-
-  const row = document.querySelector(
-    `.cellrow[data-day="${day}"][data-col="${col}"]`);
-  if (row) {
-    row.classList.toggle("over", over);
-    row.querySelector(".cr-count").textContent = n;
-    const t = row.querySelector(".cr-tally");
-    t.innerHTML = tallyHTML(n);
   }
 
   if (cellDlg.open && Number(cellDlg.dataset.day) === day && cellDlg.dataset.col === col) {
@@ -606,13 +518,6 @@ document.addEventListener("pointerdown", (e) => {
     showBar(day, col);
     return;
   }
-  const row = e.target.closest(".cellrow");
-  if (row) {
-    if (S.week.locked) return toast("Closed week — press Unlock to edit");
-    e.preventDefault();
-    bump(Number(row.dataset.day), row.dataset.col, 1);
-    return;
-  }
   if (!e.target.closest("#cellBar")) hideBar();
 });
 
@@ -632,26 +537,11 @@ document.addEventListener("click", (e) => {
     return;
   }
 
-  const nav = e.target.closest("[data-nav]");
-  if (nav) {
-    setView(nav.dataset.nav, V.day);
-    return;
-  }
-
-  const dayLink = e.target.closest("[data-daylink]");
-  if (dayLink) {
-    setView("day", Number(dayLink.dataset.daylink));
-    return;
-  }
-
   const goto = e.target.closest("[data-goto]");
   if (goto) {
     openCellDlg(Number(goto.dataset.goto), cellDlg.dataset.col);
     return;
   }
-
-  if (e.target.closest("[data-dayprev]")) return setView("day", V.day - 1);
-  if (e.target.closest("[data-daynext]")) return setView("day", V.day + 1);
 
   const goalTh = e.target.closest("#goalRow th.goal");
   if (goalTh) return openGoalPop(goalTh);
@@ -718,9 +608,7 @@ document.addEventListener("change", (e) => {
       method: "PATCH",
       body: JSON.stringify({ [field]: raw === "" ? null : raw }),
     });
-    const keep = { ...V };
     S.week = week;
-    Object.assign(V, keep);
     renderWeights();
     renderHeader();
     flashSaved();
@@ -886,18 +774,13 @@ window.addEventListener("resize", () => {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (cellDlg.open) return closeCellDlg();
-    if (V.view === "day") return setView("week", V.day);
     closeGoalPop();
     closeWeekList();
     hideBar();
     return;
   }
   if (/input|textarea/i.test(document.activeElement.tagName)) return;
-  if (e.key === "ArrowLeft" && V.view === "week") {
-    load(shiftDate(S.week.week_start, -7));
-  }
-  if (e.key === "ArrowRight" && V.view === "day") setView("day", V.day + 1);
-  if (e.key === "ArrowLeft" && V.view === "day") setView("day", V.day - 1);
+  if (e.key === "ArrowLeft") load(shiftDate(S.week.week_start, -7));
 });
 
 boot().catch((err) => toast(err.message));
