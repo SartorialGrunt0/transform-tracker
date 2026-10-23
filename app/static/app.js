@@ -50,6 +50,7 @@ async function boot() {
 async function load(weekStart, opts = {}) {
   const week = await api(`/api/week/${weekStart}`);
   S.week = week;
+  S.current = mondayOf(week.today);
   hideBar();
   render();
   if (!opts.quiet) closeGoalPop();
@@ -85,7 +86,8 @@ function renderNav() {
   else if (S.week.locked) state.textContent = "Closed · read only";
   else state.textContent = "Unlocked · editable";
 
-  $("#nextWeek").disabled = true;
+  const next = shiftDate(S.week.week_start, 7);
+  $("#nextWeek").disabled = next > S.current;
   $("#todayBtn").hidden = S.week.is_current;
 }
 
@@ -163,8 +165,6 @@ function renderWeek(root) {
   html += `</tbody><tfoot id="totalsFoot"><tr><td class="daycol">Σ</td>`;
   for (const c of cols) html += `<td>${S.week.col_totals[c.key] || ""}</td>`;
   html += `<td class="actcol"></td></tr></tfoot></table>`;
-
-  html += `<p class="gridhint">Tap a cell to add · use the bar below to correct it</p>`;
 
   html += `<div class="actwrap"><h2 class="sechead">Activity</h2><div class="actcards">`;
   for (const d of S.week.days) {
@@ -527,8 +527,18 @@ document.addEventListener("change", (e) => {
   });
 });
 
-$("#prevWeek").addEventListener("click", () => load(shiftDate(S.week.week_start, -7)));
-$("#nextWeek").addEventListener("click", () => toast("Future weeks aren't open yet"));
+function goPrevWeek() {
+  load(shiftDate(S.week.week_start, -7));
+}
+
+function goNextWeek() {
+  const next = shiftDate(S.week.week_start, 7);
+  if (next > S.current) return toast("Future weeks aren't open yet");
+  load(next);
+}
+
+$("#prevWeek").addEventListener("click", goPrevWeek);
+$("#nextWeek").addEventListener("click", goNextWeek);
 $("#todayBtn").addEventListener("click", () => load("current"));
 
 $("#unlockBtn").addEventListener("click", () => {
@@ -659,6 +669,11 @@ function shiftDate(isoDate, days) {
   return d.toISOString().slice(0, 10);
 }
 
+function mondayOf(isoDate) {
+  const d = new Date(isoDate + "T00:00:00Z");
+  return shiftDate(isoDate, -((d.getUTCDay() + 6) % 7));
+}
+
 let toastTimer = null;
 function toast(msg) {
   const t = $("#toast");
@@ -692,7 +707,8 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (/input|textarea/i.test(document.activeElement.tagName)) return;
-  if (e.key === "ArrowLeft") load(shiftDate(S.week.week_start, -7));
+  if (e.key === "ArrowLeft") goPrevWeek();
+  if (e.key === "ArrowRight") goNextWeek();
 });
 
 boot().catch((err) => toast(err.message));
