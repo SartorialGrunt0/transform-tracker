@@ -1,8 +1,21 @@
 .venv/
-data/
 __pycache__/
 *.pyc
 .pytest_cache/
+node_modules/
+
+# --- user data: never commit these -------------------------------------------
+# the database (TT_DB points here), its WAL sidecars, and backups
+data/
 *.db
 *.db-wal
 *.db-shm
+*.sqlite3
+backups/
+
+# secrets: reminder tokens / webhook URLs if you ever put them in a file
+.env
+.env.*
+
+*.log
+.DS_Store

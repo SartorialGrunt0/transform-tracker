@@ -284,5 +284,6 @@ if __name__ == "__main__":
         "app.main:app",
         host=os.environ.get("TT_HOST", "0.0.0.0"),
         port=int(os.environ.get("TT_PORT", "8088")),
-        reload=bool(os.environ.get("TT_RELOAD")),
+        reload=os.environ.get("TT_RELOAD", "").strip().lower()
+        in ("1", "true", "yes", "on"),
     )
