@@ -247,8 +247,17 @@ def test_health(client):
 
 
 def test_favicon_served(client):
-    for path in ("/favicon.ico", "/static/favicon.svg"):
-        r = client.get(path)
-        assert r.status_code == 200
-        assert r.headers["content-type"].startswith("image/svg+xml")
-        assert b"<svg" in r.content
+    r = client.get("/favicon.ico")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/x-icon"
+    assert r.content[:4] == b"\x00\x00\x01\x00"  # ICO magic header
+
+    r = client.get("/static/favicon.svg")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("image/svg+xml")
+    assert b"<svg" in r.content
+
+    r = client.get("/static/apple-touch-icon.png")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("image/png")
+    assert r.content[:8] == b"\x89PNG\r\n\x1a\n"
