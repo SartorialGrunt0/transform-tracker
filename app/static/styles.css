@@ -251,8 +251,9 @@ tr.todayrow td.daycol::before {
   content: "";
   position: absolute;
   left: 0;
+  top: 8px;
+  bottom: 8px;
   width: 3px;
-  height: var(--cell-h);
   background: var(--accent);
   border-radius: 0 3px 3px 0;
 }
