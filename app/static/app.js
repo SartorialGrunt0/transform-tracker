@@ -1,23 +1,17 @@
-/* Transform Tracker — front-end */
+/* Transform Tracker — front-end
+   Views: week (default) -> day (one weekday, all columns) -> cell (one cell).
+   Tapping a cell adds a tally; every cell carries explicit -/+/reset controls. */
 
-const S = {
-  week: null,
-  current: null,
-  today: null,
-  settings: {},
-};
+const S = { week: null, current: null, today: null, settings: {} };
+const V = { view: "week", day: 0, col: null };   // col = the cell currently in the popup
 
 const $ = (sel, root = document) => root.querySelector(sel);
-const el = (tag, cls, html) => {
-  const n = document.createElement(tag);
-  if (cls) n.className = cls;
-  if (html != null) n.innerHTML = html;
-  return n;
-};
 const esc = (s) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[c]));
+
+let QUEUE = Promise.resolve();
 
 /* ------------------------------------------------------------------ api */
 
@@ -29,13 +23,10 @@ async function api(path, opts = {}) {
   let data = null;
   const type = res.headers.get("content-type") || "";
   if (type.includes("json")) data = await res.json();
-  if (!res.ok) {
-    throw new Error((data && data.detail) || `HTTP ${res.status}`);
-  }
+  if (!res.ok) throw new Error((data && data.detail) || `HTTP ${res.status}`);
   return data;
 }
 
-let QUEUE = Promise.resolve();
 function enqueue(fn) {
   QUEUE = QUEUE.then(fn).catch((err) => {
     toast(err.message || String(err));
@@ -58,17 +49,37 @@ async function boot() {
 async function load(weekStart, opts = {}) {
   const week = await api(`/api/week/${weekStart}`);
   S.week = week;
+  hideBar();
   render();
   if (!opts.quiet) closeGoalPop();
 }
 
-/* ------------------------------------------------------------------ render */
+/* ------------------------------------------------------------------ views */
+
+const colMeta = (key) => S.week.columns.find((c) => c.key === key) || {};
+const colLabel = (key) => colMeta(key).label || key;
+const colColor = (key) => colMeta(key).color || "#fff";
+const countOf = (day, col) => S.week.days[day].cells[col];
+
+function setView(view, day) {
+  if (Number.isFinite(day)) V.day = Math.max(0, Math.min(6, day));
+  V.view = view === "day" ? "day" : "week";
+  hideBar();
+  closeGoalPop();
+  closeCellDlg();
+  render();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
 
 function render() {
   renderHeader();
   renderNav();
-  renderGrid();
-  renderActivityCards();
+
+  const root = $("#viewRoot");
+  if (V.view === "day") renderDay(root);
+  else renderWeek(root);
+
+  $("#weightsCard").hidden = V.view !== "week";
   renderWeights();
   renderLock();
 }
@@ -82,28 +93,23 @@ function shortRange(week) {
   const a = new Date(week.week_start + "T00:00:00");
   const b = new Date(week.week_end + "T00:00:00");
   const m = (d) => d.toLocaleDateString(undefined, { month: "short" });
-  if (a.getMonth() === b.getMonth()) {
-    return `${m(a)} ${a.getDate()} – ${b.getDate()}`;
-  }
+  if (a.getMonth() === b.getMonth()) return `${m(a)} ${a.getDate()} – ${b.getDate()}`;
   return `${m(a)} ${a.getDate()} – ${m(b)} ${b.getDate()}`;
 }
 
 function renderNav() {
   $("#weekLabel").textContent = S.week.label;
   const state = $("#weekState");
-  if (S.week.is_current) {
-    state.textContent = "Current week";
-  } else if (S.week.locked) {
-    state.textContent = "Closed · read only";
-  } else {
-    state.textContent = "Unlocked · editable";
-  }
-  $("#nextWeek").disabled = true; // the future is not open
+  if (S.week.is_current) state.textContent = "Current week";
+  else if (S.week.locked) state.textContent = "Closed · read only";
+  else state.textContent = "Unlocked · editable";
+
+  $("#nextWeek").disabled = true;
   $("#todayBtn").hidden = S.week.is_current;
 }
 
-function tallyHTML(n) {
-  if (n <= 0 || n > 10) return "";
+function tallyHTML(n, max = 10) {
+  if (n <= 0 || n > max) return "";
   const groups = [];
   let left = n;
   while (left > 0) {
@@ -117,119 +123,448 @@ function tallyHTML(n) {
   return `<span class="tally">${groups.join("")}</span>`;
 }
 
-function renderGrid() {
+/* ------------------------------------------------------------- week view */
+
+function renderWeek(root) {
   const cols = S.week.columns;
   const goals = S.week.goals;
 
-  const gr = $("#goalRow");
-  gr.innerHTML =
-    `<th class="daycol" aria-hidden="true"></th>` +
-    cols
-      .map(
-        (c) =>
-          `<th class="goal" data-col="${c.key}" style="--tint:${c.color}"
-               title="Daily goal for ${esc(c.label)} — tap to change">
-             <span class="g">${goals[c.key]}</span>
-           </th>`
-      )
-      .join("") +
-    `<th class="actcol" aria-hidden="true"></th>`;
+  let html = `<table id="grid" class="grid">
+    <colgroup>
+      <col class="c-day"><col span="8" class="c-col"><col class="c-act">
+    </colgroup>
+    <thead>
+      <tr id="goalRow" class="gorow"><th class="daycol" aria-hidden="true"></th>`;
 
-  const cr = $("#colRow");
-  cr.innerHTML =
-    `<th class="daycol" aria-hidden="true"></th>` +
-    cols
-      .map(
-        (c) =>
-          `<th class="lbl" style="--tint:${c.color}">
-             <span class="long">${esc(c.label)}</span>
-             <span class="short">${esc(c.short)}</span>
-           </th>`
-      )
-      .join("") +
-    `<th class="lbl actcol" style="--tint:#f7f3e9">Activity</th>`;
+  for (const c of cols) {
+    html += `<th class="goal" data-col="${c.key}" style="--tint:${c.color}"
+      title="Daily goal for ${esc(c.label)} — tap to change">
+      <span class="g">${goals[c.key]}</span></th>`;
+  }
+  html += `<th class="actcol" aria-hidden="true"></th></tr>
+      <tr id="colRow" class="colrow"><th class="daycol" aria-hidden="true"></th>`;
+  for (const c of cols) {
+    html += `<th class="lbl" style="--tint:${c.color}">
+      <span class="long">${esc(c.label)}</span>
+      <span class="short">${esc(c.short)}</span></th>`;
+  }
+  html += `<th class="lbl actcol" style="--tint:#f7f3e9">Activity</th></tr>
+    </thead><tbody id="daysBody">`;
 
-  const body = $("#daysBody");
-  body.innerHTML = "";
   for (const d of S.week.days) {
-    const tr = el("tr", d.is_today ? "todayrow" : "");
-    const day = el("td", "daycol");
-    day.innerHTML = `${d.label}<span class="dom">${d.dom}</span>`;
-    tr.appendChild(day);
-
+    html += `<tr class="${d.is_today ? "todayrow" : ""}">
+      <td class="daycol" data-daylink="${d.day}" role="button" tabindex="0"
+          aria-label="Zoom into ${d.label} ${d.dom}">${d.label}
+        <span class="dom">${d.dom}</span></td>`;
     for (const c of cols) {
-      const count = d.cells[c.key];
+      const n = d.cells[c.key];
       const over = d.over[c.key];
-      const td = el("td", "cell" + (over ? " over" : ""));
-      td.dataset.day = d.day;
-      td.dataset.col = c.key;
-      td.style.setProperty("--tint", c.color);
-      td.setAttribute("role", "button");
-      td.setAttribute(
-        "aria-label",
-        `${d.label} ${c.label}: ${count}${count ? " tally" : " tallies"}, goal ${goals[c.key]}`
-      );
-      td.innerHTML =
-        `<span class="n">${count || ""}</span>` + tallyHTML(count);
-      tr.appendChild(td);
+      html += `<td class="cell${over ? " over" : ""}" data-day="${d.day}"
+        data-col="${c.key}" style="--tint:${c.color}" role="button"
+        aria-label="${d.label} ${esc(c.label)}: ${n} tallies, goal ${goals[c.key]}">
+        <span class="n">${n || ""}</span>${tallyHTML(n)}</td>`;
     }
-
-    const act = el("td", "actcol");
-    act.appendChild(activityNode(d, "desk"));
-    tr.appendChild(act);
-    body.appendChild(tr);
+    html += `<td class="actcol"><div class="act-in" data-day="${d.day}">
+      <div class="row1">
+        <input class="t" data-field="time" inputmode="numeric" enterkeyhint="done"
+          maxlength="5" placeholder="00:45" value="${esc(d.activity.time)}"
+          aria-label="Time HH:MM">
+        <input class="k" data-field="type" maxlength="120" placeholder="walk"
+          value="${esc(d.activity.type)}" aria-label="Activity type">
+      </div>
+      <div class="int">${intensityButtons(d)}</div>
+    </div></td></tr>`;
   }
 
-  const foot = $("#totalsFoot");
-  foot.innerHTML =
-    `<tr><td class="daycol">Σ</td>` +
-    cols.map((c) => `<td>${S.week.col_totals[c.key] || ""}</td>`).join("") +
-    `<td class="actcol"></td></tr>`;
+  html += `</tbody><tfoot id="totalsFoot"><tr><td class="daycol">Σ</td>`;
+  for (const c of cols) html += `<td>${S.week.col_totals[c.key] || ""}</td>`;
+  html += `<td class="actcol"></td></tr></tfoot></table>`;
+
+  html += `<p class="gridhint">Tap a cell to add · tap a day or ⤢ to zoom in</p>`;
+
+  html += `<div class="actwrap"><h2 class="sechead">Activity</h2><div class="actcards">`;
+  for (const d of S.week.days) {
+    html += `<div class="actcard${d.activity_done ? " done" : ""}" data-day="${d.day}">
+      <div class="ah"><span>${d.label} ${d.dom}</span>
+        <span class="ai">${d.activity.intensity ? "intensity " + d.activity.intensity : ""}</span></div>
+      <div class="a1">
+        <input class="t" data-field="time" inputmode="numeric" enterkeyhint="done"
+          maxlength="5" placeholder="00:45" value="${esc(d.activity.time)}"
+          aria-label="Time HH:MM">
+        <input class="k" data-field="type" maxlength="120" placeholder="walk"
+          value="${esc(d.activity.type)}" aria-label="Activity type">
+      </div>
+      <div class="int">${intensityButtons(d)}</div>
+    </div>`;
+  }
+  html += `</div></div>`;
+
+  root.innerHTML = html;
+  if (S.week.locked) disableInputs(root);
 }
 
-function activityNode(d, variant) {
-  const a = d.activity;
-  const wrap = el("div", variant === "desk" ? "act-in" : "actcard" + (d.activity_done ? " done" : ""));
-  wrap.dataset.day = d.day;
-
-  if (variant === "mob") {
-    wrap.innerHTML = `<div class="ah"><span>${d.label} ${d.dom}</span>
-      <span class="ai">${a.intensity ? "intensity " + a.intensity : ""}</span></div>`;
-  }
-
-  const row1 = el("div", variant === "desk" ? "row1" : "a1");
-  row1.innerHTML = `
-    <input class="t" data-field="time" inputmode="numeric" enterkeyhint="done"
-           maxlength="5" placeholder="00:45" value="${esc(a.time)}" aria-label="Time HH:MM">
-    <input class="k" data-field="type" maxlength="120" placeholder="walk"
-           value="${esc(a.type)}" aria-label="Activity type">`;
-
-  const int = el("div", "int");
-  let btns = "";
+function intensityButtons(d) {
+  let out = "";
   for (let i = 1; i <= 10; i++) {
-    btns += `<button type="button" data-int="${i}" class="${a.intensity === i ? "on" : ""}"
-              aria-label="Intensity ${i}">${i}</button>`;
+    out += `<button type="button" data-int="${i}" class="${d.activity.intensity === i ? "on" : ""}"
+      aria-label="Intensity ${i}">${i}</button>`;
   }
-  int.innerHTML = btns;
-
-  wrap.appendChild(row1);
-  wrap.appendChild(int);
-  if (S.week.locked) {
-    wrap.querySelectorAll("input, button").forEach((n) => (n.disabled = true));
-  }
-  return wrap;
+  return out;
 }
 
-function renderActivityCards() {
-  const host = $("#activityCards");
-  host.innerHTML = "";
-  for (const d of S.week.days) host.appendChild(activityNode(d, "mob"));
+function disableInputs(root) {
+  root.querySelectorAll("input, .int button").forEach((n) => (n.disabled = true));
 }
+
+/* -------------------------------------------------------------- day view */
+
+function renderDay(root) {
+  const d = S.week.days[V.day];
+  const cols = S.week.columns;
+
+  let html = `<div class="dayview">
+    <header class="dayhead">
+      <button type="button" class="pill backpill" data-nav="week" aria-label="Back to the full week">‹ All days</button>
+      <div class="dh-mid"><strong>${d.label} ${d.dom}</strong>
+        <span>${new Date(d.date + "T00:00:00").toLocaleDateString(undefined,
+          { weekday: "long", month: "short", day: "numeric" })}</span></div>
+      <div class="daynav">
+        <button type="button" data-dayprev aria-label="Previous day"
+          ${V.day === 0 ? "disabled" : ""}>‹</button>
+        <button type="button" data-daynext aria-label="Next day"
+          ${V.day === 6 ? "disabled" : ""}>›</button>
+      </div>
+    </header>
+    <ul class="cellrows">`;
+
+  for (const c of cols) {
+    const n = d.cells[c.key];
+    const over = d.over[c.key];
+    html += `<li class="cellrow${over ? " over" : ""}" data-day="${d.day}"
+      data-col="${c.key}" style="--tint:${c.color}">
+      <div class="cr-head"><span class="cr-name">${esc(c.label)}</span>
+        <span class="cr-goal">goal ${S.week.goals[c.key]}</span></div>
+      <div class="cr-body"><span class="cr-count">${n}</span>
+        <span class="cr-tally">${tallyHTML(n)}</span></div>
+      <div class="cr-actions">
+        <button type="button" class="sbtn" data-act="dec"
+          aria-label="Decrease ${esc(c.label)}">−</button>
+        <button type="button" class="sbtn" data-act="inc"
+          aria-label="Increase ${esc(c.label)}">+</button>
+        <button type="button" class="sbtn wide" data-act="zero"
+          aria-label="Reset ${esc(c.label)} to zero">Reset</button>
+        <button type="button" class="sbtn zoom" data-act="zoom"
+          aria-label="Open ${esc(c.label)} cell">⤢</button>
+      </div>
+    </li>`;
+  }
+
+  html += `</ul><div class="dayact"><h2 class="sechead">Activity</h2>
+    <div class="actcard actcard-day${d.activity_done ? " done" : ""}" data-day="${d.day}">
+      <div class="ah"><span>${d.label} ${d.dom}</span>
+        <span class="ai">${d.activity.intensity ? "intensity " + d.activity.intensity : ""}</span></div>
+      <div class="a1">
+        <input class="t" data-field="time" inputmode="numeric" enterkeyhint="done"
+          maxlength="5" placeholder="00:45" value="${esc(d.activity.time)}"
+          aria-label="Time HH:MM">
+        <input class="k" data-field="type" maxlength="120" placeholder="walk"
+          value="${esc(d.activity.type)}" aria-label="Activity type">
+      </div>
+      <div class="int">${intensityButtons(d)}</div>
+    </div></div></div>`;
+
+  root.innerHTML = html;
+  if (S.week.locked) disableInputs(root);
+}
+
+/* ------------------------------------------------------------- cell popup */
+
+const cellDlg = $("#cellDlg");
+
+function openCellDlg(day, col) {
+  if (!S.week || S.week.goals[col] == null) return;
+  V.col = col;
+  const d = S.week.days[day];
+  const n = d.cells[col];
+  const goal = S.week.goals[col];
+  const over = n > goal;
+
+  let meta;
+  if (n > goal) meta = `<b>${n - goal} over</b> the goal of ${goal}`;
+  else if (n === goal) meta = `on target — goal ${goal}`;
+  else meta = `<b>${goal - n}</b> to go · goal ${goal}`;
+
+  let chips = "";
+  for (const day2 of S.week.days) {
+    const v = day2.cells[col];
+    chips += `<button type="button" class="cvchip${day2.day === day ? " on" : ""}"
+      data-goto="${day2.day}" aria-label="${day2.label} ${v}">
+      ${day2.label.slice(0, 1)}${day2.label.slice(1, 3).toLowerCase()}<span>${v}</span></button>`;
+  }
+
+  cellDlg.dataset.day = day;
+  cellDlg.dataset.col = col;
+  cellDlg.innerHTML = `
+    <div class="cv-sheet">
+      <div class="cv-card${over ? " over" : ""}" style="--tint:${colColor(col)}">
+        <div class="cv-head"><span>${esc(colLabel(col))}</span>
+          <span class="cv-day">${d.label} ${d.dom}</span></div>
+        <div class="cv-count">${n}</div>
+        <div class="cv-tally">${tallyHTML(n, 15)}</div>
+        <div class="cv-meta">${meta}</div>
+        <div class="cv-controls">
+          <button type="button" class="bigbtn" data-act="dec" aria-label="Decrease by one">−</button>
+          <button type="button" class="bigbtn" data-act="inc" aria-label="Increase by one">+</button>
+        </div>
+        <button type="button" class="pill cv-reset" data-act="zero">Reset to 0</button>
+      </div>
+      <div class="cv-strip" aria-label="This column across the week">${chips}</div>
+      <button type="button" class="pill cv-done" data-close>Done</button>
+    </div>`;
+
+  if (!cellDlg.open) cellDlg.showModal();
+  bindDlgLock();
+}
+
+function bindDlgLock() {
+  cellDlg.querySelectorAll("input, [data-act]").forEach((n) => {
+    if (S.week.locked) n.disabled = true;
+  });
+}
+
+function closeCellDlg() {
+  if (cellDlg.open) cellDlg.close();
+  V.col = null;
+}
+
+cellDlg.addEventListener("click", (e) => {
+  if (e.target.closest("[data-close]")) return closeCellDlg();
+  const r = cellDlg.getBoundingClientRect();
+  const outside = e.clientX < r.left || e.clientX > r.right ||
+    e.clientY < r.top || e.clientY > r.bottom;
+  if (outside) closeCellDlg();
+});
+cellDlg.addEventListener("close", () => { V.col = null; });
+
+/* ------------------------------------------------------------------ counts */
+
+function setCount(day, col, value) {
+  const next = Math.max(0, Math.min(999, value));
+  const d = S.week.days[day];
+  d.cells[col] = next;
+  d.over[col] = next > S.week.goals[col];
+  paintCounts(day, col);
+
+  enqueue(async () => {
+    const res = await api(`/api/week/${S.week.week_start}/cell`, {
+      method: "PUT",
+      body: JSON.stringify({ day, col, count: next }),
+    });
+    d.cells[col] = res.count;
+    d.over[col] = res.over;
+    paintCounts(day, col);
+    flashSaved();
+  });
+}
+
+function bump(day, col, delta) {
+  setCount(day, col, countOf(day, col) + delta);
+}
+
+function paintCounts(day, col) {
+  const n = countOf(day, col);
+  const over = S.week.days[day].over[col];
+  const goal = S.week.goals[col];
+
+  const td = document.querySelector(`td.cell[data-day="${day}"][data-col="${col}"]`);
+  if (td) {
+    td.classList.toggle("over", over);
+    td.querySelector(".n").textContent = n || "";
+    const old = td.querySelector(".tally");
+    if (old) old.remove();
+    td.insertAdjacentHTML("beforeend", tallyHTML(n));
+    td.setAttribute("aria-label",
+      `${S.week.days[day].label} ${colLabel(col)}: ${n} tallies, goal ${goal}`);
+    td.classList.remove("pop");
+    void td.offsetWidth;
+    td.classList.add("pop");
+  }
+
+  const row = document.querySelector(
+    `.cellrow[data-day="${day}"][data-col="${col}"]`);
+  if (row) {
+    row.classList.toggle("over", over);
+    row.querySelector(".cr-count").textContent = n;
+    const t = row.querySelector(".cr-tally");
+    t.innerHTML = tallyHTML(n);
+  }
+
+  if (cellDlg.open && Number(cellDlg.dataset.day) === day && cellDlg.dataset.col === col) {
+    const card = cellDlg.querySelector(".cv-card");
+    if (card) {
+      card.classList.toggle("over", over);
+      card.querySelector(".cv-count").textContent = n;
+      card.querySelector(".cv-tally").innerHTML = tallyHTML(n, 15);
+      card.querySelector(".cv-meta").innerHTML = n > goal
+        ? `<b>${n - goal} over</b> the goal of ${goal}`
+        : n === goal ? `on target — goal ${goal}` : `<b>${goal - n}</b> to go · goal ${goal}`;
+    }
+    const chip = cellDlg.querySelector(`.cvchip[data-goto="${day}"] span`);
+    if (chip) chip.textContent = n;
+  }
+
+  if (barFor && barFor.day === day && barFor.col === col) {
+    $("#barCount").textContent = n;
+  }
+
+  paintTotals();
+}
+
+function paintTotals() {
+  const cells = document.querySelectorAll("#totalsFoot td");
+  if (!cells.length) return;
+  S.week.columns.forEach((c, i) => {
+    let sum = 0;
+    for (const d of S.week.days) sum += d.cells[c.key];
+    S.week.col_totals[c.key] = sum;
+    if (cells[i + 1]) cells[i + 1].textContent = sum || "";
+  });
+}
+
+/* ------------------------------------------------------------- cell toolbar */
+
+let barFor = null;
+
+function showBar(day, col) {
+  const td = document.querySelector(`td.cell[data-day="${day}"][data-col="${col}"]`);
+  if (!td) return;
+  const bar = $("#cellBar");
+  bar.dataset.day = day;
+  bar.dataset.col = col;
+  $("#barName").textContent = `${S.week.days[day].label} · ${colLabel(col)}`;
+  $("#barCount").textContent = countOf(day, col);
+  document.querySelectorAll("td.cell.active").forEach((n) => n.classList.remove("active"));
+  td.classList.add("active");
+  bar.hidden = false;
+  document.body.classList.add("barshown");
+  barFor = { day, col };
+}
+
+function hideBar() {
+  const bar = $("#cellBar");
+  if (bar) bar.hidden = true;
+  document.body.classList.remove("barshown");
+  document.querySelectorAll("td.cell.active").forEach((n) => n.classList.remove("active"));
+  barFor = null;
+}
+
+/* ------------------------------------------------------------------ activity */
+
+const ACT_TIMERS = new Map();
+
+function scheduleActivity(day, delay = 450) {
+  clearTimeout(ACT_TIMERS.get(day));
+  ACT_TIMERS.set(day, setTimeout(() => saveActivity(day), delay));
+}
+
+function saveActivity(day) {
+  const a = S.week.days[day].activity;
+  enqueue(async () => {
+    const res = await api(`/api/week/${S.week.week_start}/activity`, {
+      method: "PUT",
+      body: JSON.stringify({ day, time: a.time, type: a.type, intensity: a.intensity }),
+    });
+    a.time = res.time;
+    a.type = res.type;
+    a.intensity = res.intensity;
+    const done = !!(res.time || res.type);
+    S.week.days[day].activity_done = done;
+    document.querySelectorAll(`[data-day="${day}"]`)
+      .forEach((n) => {
+        if (n.classList.contains("actcard") || n.classList.contains("act-in")) {
+          n.classList.toggle("done", done);
+        }
+      });
+    syncDayLabels(day);
+    flashSaved();
+  });
+}
+
+function syncDayLabels(day) {
+  const i = S.week.days[day].activity.intensity;
+  document.querySelectorAll(`.actcard[data-day="${day}"] .ai, .act-in[data-day="${day}"] .ai`)
+    .forEach((n) => (n.textContent = i ? `intensity ${i}` : ""));
+}
+
+function normalizeTime(raw) {
+  let v = String(raw || "").trim().replace(/[^0-9:]/g, "");
+  if (!v) return "";
+  if (v.includes(":")) {
+    const [h, m] = v.split(":");
+    return `${String(Math.min(23, Number(h) || 0)).padStart(2, "0")}:${String(
+      Math.min(59, Number(m) || 0)).padStart(2, "0")}`;
+  }
+  if (v.length <= 2) v = v.padStart(2, "0");
+  if (v.length === 3) v = "0" + v;
+  v = v.padStart(4, "0");
+  const h = Math.min(23, Number(v.slice(0, 2)) || 0);
+  const m = Math.min(59, Number(v.slice(2, 4)) || 0);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+/* ------------------------------------------------------------------ goal popover */
+
+let goalPop = null;
+
+function openGoalPop(th) {
+  closeGoalPop();
+  if (S.week.locked) return toast("Closed week — press Unlock to edit");
+  const col = th.dataset.col;
+  const pop = document.createElement("div");
+  pop.className = "goalpop";
+  for (let i = 1; i <= 9; i++) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = String(i);
+    if (S.week.goals[col] === i) b.classList.add("on");
+    b.onclick = () => {
+      closeGoalPop();
+      S.week.goals[col] = i;
+      enqueue(async () => {
+        await api(`/api/week/${S.week.week_start}`, {
+          method: "PATCH",
+          body: JSON.stringify({ goals: { [col]: i } }),
+        });
+        for (const d of S.week.days) d.over[col] = d.cells[col] > i;
+        render();
+        flashSaved();
+      });
+    };
+    pop.appendChild(b);
+  }
+  document.body.appendChild(pop);
+  const r = th.getBoundingClientRect();
+  const pw = pop.offsetWidth;
+  const left = Math.min(Math.max(8, r.left + r.width / 2 - pw / 2),
+    window.innerWidth - pw - 8);
+  pop.style.left = `${left}px`;
+  pop.style.top = `${Math.min(r.bottom + 6, window.innerHeight - pop.offsetHeight - 8)}px`;
+  goalPop = pop;
+}
+
+function closeGoalPop() {
+  if (goalPop) goalPop.remove();
+  goalPop = null;
+}
+
+/* ------------------------------------------------------------------ weights */
 
 function renderWeights() {
   const w = S.week;
+  if (!w) return;
   const set = (id, v) => {
     const input = $(id);
+    if (!input) return;
     if (document.activeElement !== input) input.value = v ?? "";
     input.disabled = w.locked;
   };
@@ -254,268 +589,73 @@ function renderWeights() {
 
 function renderLock() {
   $("#lockBanner").hidden = !S.week.locked;
-  $("#unlockBtn").textContent = "Unlock";
   $("#lockBtn").hidden = S.week.is_current || S.week.locked;
-}
-
-/* ------------------------------------------------------------------ tallies */
-
-/* Gestures on a cell:
-   tap            -> +1 (immediate, so fast tally entry stays fast)
-   double tap     -> -1 net (a deliberate 200-340ms beat right after an idle cell)
-   long press     -> -1
-   Jamming taps faster than 200ms apart is never read as a double tap. */
-
-const TAPS = new Map();
-let longPress = null;
-
-function cancelLongPress() {
-  clearTimeout(longPress);
-  longPress = null;
-}
-
-function onCellDown(e, cell) {
-  if (S.week.locked) {
-    toast("Closed week — press Unlock to edit");
-    return;
-  }
-  e.preventDefault();
-  const day = Number(cell.dataset.day);
-  const col = cell.dataset.col;
-  const key = `${day}:${col}`;
-  const now = performance.now();
-  const rec = TAPS.get(key) || { armed: 0, changed: 0 };
-  const gap = now - rec.armed;
-
-  if (rec.armed && gap >= 200 && gap <= 380) {
-    TAPS.set(key, { armed: 0, changed: now });
-    cancelLongPress();
-    bump(day, col, -2); // the first tap already added one
-    return;
-  }
-
-  const rested = now - rec.changed > 600;
-  TAPS.set(key, { armed: rested ? now : 0, changed: now });
-  bump(day, col, 1);
-
-  cancelLongPress();
-  const pressedKey = key;
-  longPress = setTimeout(() => {
-    TAPS.set(pressedKey, { armed: 0, changed: performance.now() });
-    bump(day, col, -2);
-  }, 700);
-}
-
-let undoTimer = null;
-
-function showUndo(day, col) {
-  const td = document.querySelector(
-    `td.cell[data-day="${day}"][data-col="${col}"]`
-  );
-  if (!td || S.week.locked) return;
-  const r = td.getBoundingClientRect();
-  const card = $(".gridcard").getBoundingClientRect();
-  const b = $("#undoBadge");
-  b.dataset.day = day;
-  b.dataset.col = col;
-  b.style.left = `${r.right - card.left - 13}px`;
-  b.style.top = `${r.top - card.top - 20}px`;
-  b.hidden = false;
-  clearTimeout(undoTimer);
-  undoTimer = setTimeout(() => (b.hidden = true), 2400);
-}
-
-function bump(day, col, delta) {
-  const d = S.week.days[day];
-  const before = d.cells[col];
-  const next = Math.max(0, Math.min(999, before + delta));
-  d.cells[col] = next;
-  d.over[col] = next > S.week.goals[col];
-  paintCell(day, col, true);
-  if (delta > 0) showUndo(day, col);
-  paintTotals();
-
-  enqueue(async () => {
-    const res = await api(`/api/week/${S.week.week_start}/cell`, {
-      method: "POST",
-      body: JSON.stringify({ day, col, delta }),
-    });
-    d.cells[col] = res.count;
-    d.over[col] = res.over;
-    paintCell(day, col, false);
-    paintTotals();
-    flashSaved();
-  });
-}
-
-function paintCell(day, col, animate) {
-  const td = document.querySelector(
-    `td.cell[data-day="${day}"][data-col="${col}"]`
-  );
-  if (!td) return;
-  const count = S.week.days[day].cells[col];
-  const over = S.week.days[day].over[col];
-  td.classList.toggle("over", over);
-  td.querySelector(".n").textContent = count || "";
-  const tally = td.querySelector(".tally");
-  if (tally) tally.remove();
-  td.insertAdjacentHTML("beforeend", tallyHTML(count));
-  td.setAttribute(
-    "aria-label",
-    `${S.week.days[day].label} ${col}: ${count} tallies, goal ${S.week.goals[col]}`
-  );
-  if (animate) {
-    td.classList.remove("pop");
-    void td.offsetWidth;
-    td.classList.add("pop");
-  }
-}
-
-function paintTotals() {
-  const cells = document.querySelectorAll("#totalsFoot td");
-  const cols = S.week.columns;
-  cols.forEach((c, i) => {
-    let sum = 0;
-    for (const d of S.week.days) sum += d.cells[c.key];
-    S.week.col_totals[c.key] = sum;
-    if (cells[i + 1]) cells[i + 1].textContent = sum || "";
-  });
-}
-
-/* ------------------------------------------------------------------ activity */
-
-const ACT_TIMERS = new Map();
-
-function scheduleActivity(day, delay = 450) {
-  clearTimeout(ACT_TIMERS.get(day));
-  ACT_TIMERS.set(
-    day,
-    setTimeout(() => saveActivity(day), delay)
-  );
-}
-
-function saveActivity(day) {
-  const a = S.week.days[day].activity;
-  enqueue(async () => {
-    const res = await api(`/api/week/${S.week.week_start}/activity`, {
-      method: "PUT",
-      body: JSON.stringify({ day, time: a.time, type: a.type, intensity: a.intensity }),
-    });
-    a.time = res.time;
-    a.type = res.type;
-    a.intensity = res.intensity;
-    S.week.days[day].activity_done = !!(res.time || res.type);
-    document
-      .querySelectorAll(`[data-day="${day}"].act-in, .actcard[data-day="${day}"]`)
-      .forEach((n) => n.classList.toggle("done", S.week.days[day].activity_done));
-    syncDayLabels(day);
-    flashSaved();
-  });
-}
-
-function syncDayLabels(day) {
-  const label = document.querySelector(
-    `.actcard[data-day="${day}"] .ai`
-  );
-  if (label) {
-    const i = S.week.days[day].activity.intensity;
-    label.textContent = i ? `intensity ${i}` : "";
-  }
-}
-
-function normalizeTime(raw) {
-  let v = String(raw || "").trim().replace(/[^0-9:]/g, "");
-  if (!v) return "";
-  if (v.includes(":")) {
-    const [h, m] = v.split(":");
-    return `${String(Math.min(23, Number(h) || 0)).padStart(2, "0")}:${String(
-      Math.min(59, Number(m) || 0)
-    ).padStart(2, "0")}`;
-  }
-  if (v.length <= 2) v = v.padStart(2, "0"); // "45" -> 45 minutes
-  if (v.length === 3) v = "0" + v;
-  v = v.padStart(4, "0");
-  const h = Math.min(23, Number(v.slice(0, 2)) || 0);
-  const m = Math.min(59, Number(v.slice(2, 4)) || 0);
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-}
-
-/* ------------------------------------------------------------------ goal popover */
-
-let goalPop = null;
-
-function openGoalPop(th) {
-  closeGoalPop();
-  if (S.week.locked) {
-    toast("Closed week — press Unlock to edit");
-    return;
-  }
-  const col = th.dataset.col;
-  const pop = el("div", "goalpop");
-  for (let i = 1; i <= 9; i++) {
-    const b = el("button", S.week.goals[col] === i ? "on" : "", String(i));
-    b.type = "button";
-    b.onclick = () => {
-      closeGoalPop();
-      const goals = { ...S.week.goals, [col]: i };
-      S.week.goals = goals;
-      paintGoals();
-      enqueue(async () => {
-        await api(`/api/week/${S.week.week_start}`, {
-          method: "PATCH",
-          body: JSON.stringify({ goals: { [col]: i } }),
-        });
-        flashSaved();
-      });
-    };
-    pop.appendChild(b);
-  }
-  document.body.appendChild(pop);
-  const r = th.getBoundingClientRect();
-  const pw = pop.offsetWidth;
-  const left = Math.min(
-    Math.max(8, r.left + r.width / 2 - pw / 2),
-    window.innerWidth - pw - 8
-  );
-  pop.style.left = `${left}px`;
-  pop.style.top = `${Math.min(r.bottom + 6, window.innerHeight - pop.offsetHeight - 8)}px`;
-  goalPop = pop;
-}
-
-function closeGoalPop() {
-  if (goalPop) goalPop.remove();
-  goalPop = null;
-}
-
-function paintGoals() {
-  document.querySelectorAll("#goalRow th.goal").forEach((th) => {
-    th.querySelector(".g").textContent = S.week.goals[th.dataset.col];
-  });
-  document.querySelectorAll("td.cell").forEach((td) => {
-    const day = Number(td.dataset.day);
-    const col = td.dataset.col;
-    const over = S.week.days[day].cells[col] > S.week.goals[col];
-    S.week.days[day].over[col] = over;
-    td.classList.toggle("over", over);
-  });
 }
 
 /* ------------------------------------------------------------------ events */
 
-document.addEventListener("pointerup", cancelLongPress);
-document.addEventListener("pointercancel", cancelLongPress);
-
 document.addEventListener("pointerdown", (e) => {
+  if (e.target.closest("button, input")) return;
   const cell = e.target.closest("td.cell");
-  if (cell) onCellDown(e, cell);
+  if (cell) {
+    if (S.week.locked) return toast("Closed week — press Unlock to edit");
+    e.preventDefault();
+    const day = Number(cell.dataset.day);
+    const col = cell.dataset.col;
+    bump(day, col, 1);
+    showBar(day, col);
+    return;
+  }
+  const row = e.target.closest(".cellrow");
+  if (row) {
+    if (S.week.locked) return toast("Closed week — press Unlock to edit");
+    e.preventDefault();
+    bump(Number(row.dataset.day), row.dataset.col, 1);
+    return;
+  }
+  if (!e.target.closest("#cellBar")) hideBar();
 });
 
 document.addEventListener("click", (e) => {
-  const goalTh = e.target.closest("#goalRow th.goal");
-  if (goalTh) {
-    openGoalPop(goalTh);
+  const actBtn = e.target.closest("[data-act]");
+  if (actBtn) {
+    e.preventDefault();
+    const host = actBtn.closest("[data-day]") || $("#cellBar");
+    const day = Number(host.dataset.day);
+    const col = host.dataset.col;
+    const act = actBtn.dataset.act;
+    if (S.week.locked) return toast("Closed week — press Unlock to edit");
+    if (act === "inc") bump(day, col, 1);
+    else if (act === "dec") bump(day, col, -1);
+    else if (act === "zero") setCount(day, col, 0);
+    else if (act === "zoom") openCellDlg(day, col);
     return;
   }
+
+  const nav = e.target.closest("[data-nav]");
+  if (nav) {
+    setView(nav.dataset.nav, V.day);
+    return;
+  }
+
+  const dayLink = e.target.closest("[data-daylink]");
+  if (dayLink) {
+    setView("day", Number(dayLink.dataset.daylink));
+    return;
+  }
+
+  const goto = e.target.closest("[data-goto]");
+  if (goto) {
+    openCellDlg(Number(goto.dataset.goto), cellDlg.dataset.col);
+    return;
+  }
+
+  if (e.target.closest("[data-dayprev]")) return setView("day", V.day - 1);
+  if (e.target.closest("[data-daynext]")) return setView("day", V.day + 1);
+
+  const goalTh = e.target.closest("#goalRow th.goal");
+  if (goalTh) return openGoalPop(goalTh);
+
   if (goalPop && !e.target.closest(".goalpop")) closeGoalPop();
   if (weekPop && !e.target.closest(".weekpop") && !e.target.closest("#weekLabel")) {
     closeWeekList();
@@ -529,8 +669,7 @@ document.addEventListener("click", (e) => {
     const a = S.week.days[day].activity;
     const n = Number(intBtn.dataset.int);
     a.intensity = a.intensity === n ? null : n;
-    document
-      .querySelectorAll(`[data-day="${day}"] .int button`)
+    document.querySelectorAll(`[data-day="${day}"] .int button`)
       .forEach((b) => b.classList.toggle("on", Number(b.dataset.int) === a.intensity));
     syncDayLabels(day);
     saveActivity(day);
@@ -540,8 +679,7 @@ document.addEventListener("click", (e) => {
 document.addEventListener("input", (e) => {
   const inp = e.target.closest("input[data-field]");
   if (!inp) return;
-  const host = inp.closest("[data-day]");
-  const day = Number(host.dataset.day);
+  const day = Number(inp.closest("[data-day]").dataset.day);
   const a = S.week.days[day].activity;
   a[inp.dataset.field] = inp.value;
   S.week.days[day].activity_done = !!(a.time || a.type);
@@ -580,32 +718,25 @@ document.addEventListener("change", (e) => {
       method: "PATCH",
       body: JSON.stringify({ [field]: raw === "" ? null : raw }),
     });
+    const keep = { ...V };
     S.week = week;
+    Object.assign(V, keep);
     renderWeights();
     renderHeader();
     flashSaved();
   });
 });
 
-$("#undoBadge").addEventListener("click", (e) => {
-  const b = e.currentTarget;
-  b.hidden = true;
-  bump(Number(b.dataset.day), b.dataset.col, -1);
-});
-
-$("#prevWeek").addEventListener("click", () => {
-  load(shiftDate(S.week.week_start, -7));
-});
+$("#prevWeek").addEventListener("click", () => load(shiftDate(S.week.week_start, -7)));
 $("#nextWeek").addEventListener("click", () => toast("Future weeks aren't open yet"));
 $("#todayBtn").addEventListener("click", () => load("current"));
 
 $("#unlockBtn").addEventListener("click", () => {
   enqueue(async () => {
-    const week = await api(`/api/week/${S.week.week_start}/unlock`, {
+    S.week = await api(`/api/week/${S.week.week_start}/unlock`, {
       method: "POST",
       body: JSON.stringify({ unlocked: true }),
     });
-    S.week = week;
     render();
     toast("Week unlocked for editing");
   });
@@ -614,11 +745,10 @@ $("#unlockBtn").addEventListener("click", () => {
 $("#lockBtn").addEventListener("click", () => {
   if (!confirm("Lock this week? You can unlock it again.")) return;
   enqueue(async () => {
-    const week = await api(`/api/week/${S.week.week_start}/unlock`, {
+    S.week = await api(`/api/week/${S.week.week_start}/unlock`, {
       method: "POST",
       body: JSON.stringify({ unlocked: false }),
     });
-    S.week = week;
     render();
     toast("Week locked");
   });
@@ -630,14 +760,15 @@ let weekPop = null;
 async function openWeekList() {
   closeWeekList();
   const data = await api("/api/weeks");
-  const pop = el("div", "weekpop");
+  const pop = document.createElement("div");
+  pop.className = "weekpop";
   for (const w of data.weeks) {
-    const b = el("button", w.week_start === S.week.week_start ? "on" : "");
+    const b = document.createElement("button");
     b.type = "button";
+    if (w.week_start === S.week.week_start) b.classList.add("on");
     b.innerHTML = `<span>${esc(w.label)}</span>
       <span class="tag ${w.is_current ? "live" : ""}">${
-        w.is_current ? "current" : w.locked ? "closed" : "open"
-      }</span>`;
+        w.is_current ? "current" : w.locked ? "closed" : "open"}</span>`;
     b.onclick = () => {
       closeWeekList();
       load(w.week_start);
@@ -749,15 +880,24 @@ function flashSaved() {
 window.addEventListener("resize", () => {
   closeGoalPop();
   closeWeekList();
+  hideBar();
 });
+
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
+    if (cellDlg.open) return closeCellDlg();
+    if (V.view === "day") return setView("week", V.day);
     closeGoalPop();
     closeWeekList();
+    hideBar();
+    return;
   }
-  if (e.key === "ArrowLeft" && !/input|textarea/i.test(document.activeElement.tagName)) {
+  if (/input|textarea/i.test(document.activeElement.tagName)) return;
+  if (e.key === "ArrowLeft" && V.view === "week") {
     load(shiftDate(S.week.week_start, -7));
   }
+  if (e.key === "ArrowRight" && V.view === "day") setView("day", V.day + 1);
+  if (e.key === "ArrowLeft" && V.view === "day") setView("day", V.day - 1);
 });
 
 boot().catch((err) => toast(err.message));

@@ -33,37 +33,17 @@
   </nav>
 
   <main>
-    <section class="card gridcard" aria-label="Weekly tally grid">
+    <section class="card gridcard" aria-label="Tally grid">
       <div id="lockBanner" class="lockbanner" hidden>
         <span>Closed week — read only.</span>
         <button id="unlockBtn" class="pill">Unlock</button>
       </div>
 
-      <table id="grid" class="grid">
-        <colgroup>
-          <col class="c-day">
-          <col span="8" class="c-col">
-          <col class="c-act">
-        </colgroup>
-        <thead>
-          <tr id="goalRow" class="gorow"></tr>
-          <tr id="colRow" class="colrow"></tr>
-        </thead>
-        <tbody id="daysBody"></tbody>
-        <tfoot id="totalsFoot"></tfoot>
-      </table>
-      <button id="undoBadge" class="undobadge" type="button" hidden
-              aria-label="Remove one tally">−</button>
+      <div id="viewRoot" class="viewroot"></div>
 
-      <p class="gridhint">Tap a cell to add a tally · double-tap or hold to remove one</p>
-
-      <div class="actwrap">
-        <h2 class="sechead">Activity</h2>
-        <div id="activityCards" class="actcards"></div>
-      </div>
     </section>
 
-    <section class="card weights" aria-label="Week measurements">
+    <section class="card weights" id="weightsCard" aria-label="Week measurements">
       <div class="whead">
         <h2>Measurements</h2>
         <span id="wDelta" class="wdelta"></span>
@@ -136,6 +116,18 @@
   </form>
 </dialog>
 
+  <div id="cellBar" class="cellbar" hidden role="toolbar" aria-label="Cell controls">
+    <span class="barlabel">
+      <span id="barName">—</span>
+      <b id="barCount">0</b>
+    </span>
+    <button type="button" data-act="dec" title="Decrease by one" aria-label="Decrease by one">−</button>
+    <button type="button" data-act="inc" title="Increase by one" aria-label="Increase by one">+</button>
+    <button type="button" class="barreset" data-act="zero" title="Reset to zero" aria-label="Reset to zero">Reset</button>
+    <span class="barsep"></span>
+    <button type="button" data-act="zoom" title="Open this cell" aria-label="Open this cell">⤢</button>
+  </div>
+<dialog id="cellDlg" class="dlg celldlg" aria-label="Cell detail"></dialog>
 <div id="toast" class="toast" hidden></div>
 <script src="/static/app.js"></script>
 </body>

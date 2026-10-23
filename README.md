@@ -34,19 +34,33 @@ SQLite file is the only state — back up `data/tracker.db` (plus `-wal`).
   button for corrections, and a Lock button to close it again.
 - A cell turns red when its count exceeds that column's goal.
 
-Gesture rules on a tally cell:
+### Three levels
 
-| Gesture | Effect |
+1. **Week** (default) — all 8 columns × 7 days.
+2. **Day** — tap a day label (`MON 19`) on the left to zoom into that one day:
+   every column as a row with its count, tallies, goal, and explicit
+   `−` `+` `Reset` `⤢` controls, plus that day's activity box.
+3. **Cell** — `⤢` on a cell (or in a day row) opens a popup with the big count,
+   big `−`/`+`, `Reset to 0`, and that column's whole week as a strip you can tap
+   through. `Done` / Escape / tapping outside closes it.
+
+Back to the full week: the **‹ All days** button in the day header (Escape also
+works). The week arrows stay put at every level.
+
+### Editing a tally
+
+| Action | Effect |
 | --- | --- |
-| tap | +1 (commits immediately) |
-| the small − badge that appears on the tapped cell | −1, no timing involved |
-| double tap (~200–380 ms beat, on a cell at rest) | −1 |
-| long press (~0.7 s) | −1 |
-| fast jabbing (< 200 ms apart) | always +1, never mistaken for a double tap |
+| tap a cell (week) or a row (day) | +1 |
+| `−` on the cell toolbar | −1 |
+| `+` | +1 |
+| `Reset` | back to zero |
+| `⤢` | open that cell's popup |
 
-Entering five tallies quickly is safe. The − badge is the dependable way to
-remove one (it sits where your finger just was for ~2.4 s); the double tap and
-long press are the shortcuts.
+Tapping a cell in the week grid raises a bottom toolbar naming that cell
+(`WED · VEGGIES 7`) with `−` `+` `Reset` `⤢`, so a correction never depends on
+gesture timing. There is
+no double-tap or long-press behaviour.
 
 ## API
 
