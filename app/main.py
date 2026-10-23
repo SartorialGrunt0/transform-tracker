@@ -272,6 +272,11 @@ def index():
     return FileResponse(STATIC / "index.html")
 
 
+@app.get("/favicon.ico")
+def favicon():
+    return FileResponse(STATIC / "favicon.svg", media_type="image/svg+xml")
+
+
 @app.get("/healthz")
 def healthz():
     return {"ok": True}

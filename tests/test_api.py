@@ -244,3 +244,11 @@ def test_reminders_endpoint_consume(client):
 
 def test_health(client):
     assert client.get("/healthz").json() == {"ok": True}
+
+
+def test_favicon_served(client):
+    for path in ("/favicon.ico", "/static/favicon.svg"):
+        r = client.get(path)
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("image/svg+xml")
+        assert b"<svg" in r.content
