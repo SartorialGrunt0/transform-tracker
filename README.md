@@ -39,21 +39,18 @@ SQLite file is the only state — back up `data/tracker.db` (plus `-wal`).
 The week grid is the whole app: eight columns × seven days, the plan goals on
 top, that week's activity underneath, then the weight/waist bookends.
 
-Tap a cell and a bar slides up naming it — `WED · VEGGIES 7` — with `−` `+`
-`Reset` and `⤢`. That bar is the editing surface, and the tapped cell gets an
+Tap a cell and a bar slides up naming it — `WED · VEGGIES 7` — with `−`, `+`
+and `Reset`. That bar is the whole editing surface, and the tapped cell gets an
 outline so there is never any doubt which cell it belongs to. Tapping outside
-dismisses it.
-
-`⤢` opens that cell as a popup: big count, big `−`/`+`, `Reset to 0`, and that
-column's whole week as a tappable strip. `Done`, Escape, or a tap outside closes
-it. There are no zoom levels and no day view — the grid never goes away.
+(or Escape) dismisses it.
 
 | Action | Effect |
 | --- | --- |
 | tap a cell | +1 |
 | `−` / `+` in the bar | −1 / +1 |
 | `Reset` | back to zero |
-| `⤢` | open that cell's popup |
+
+No popups, no zoom levels, no day view — the grid is the app.
 
 Nothing depends on gesture timing: no double-tap, no long-press.
 

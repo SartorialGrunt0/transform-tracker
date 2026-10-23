@@ -200,73 +200,6 @@ function disableInputs(root) {
   root.querySelectorAll("input, .int button").forEach((n) => (n.disabled = true));
 }
 
-/* ------------------------------------------------------------- cell popup */
-
-const cellDlg = $("#cellDlg");
-
-function openCellDlg(day, col) {
-  if (!S.week || S.week.goals[col] == null) return;
-  const d = S.week.days[day];
-  const n = d.cells[col];
-  const goal = S.week.goals[col];
-  const over = n > goal;
-
-  let meta;
-  if (n > goal) meta = `<b>${n - goal} over</b> the goal of ${goal}`;
-  else if (n === goal) meta = `on target — goal ${goal}`;
-  else meta = `<b>${goal - n}</b> to go · goal ${goal}`;
-
-  let chips = "";
-  for (const day2 of S.week.days) {
-    const v = day2.cells[col];
-    chips += `<button type="button" class="cvchip${day2.day === day ? " on" : ""}"
-      data-goto="${day2.day}" aria-label="${day2.label} ${v}">
-      ${day2.label.slice(0, 1)}${day2.label.slice(1, 3).toLowerCase()}<span>${v}</span></button>`;
-  }
-
-  cellDlg.dataset.day = day;
-  cellDlg.dataset.col = col;
-  cellDlg.innerHTML = `
-    <div class="cv-sheet">
-      <div class="cv-card${over ? " over" : ""}" style="--tint:${colColor(col)}">
-        <div class="cv-head"><span>${esc(colLabel(col))}</span>
-          <span class="cv-day">${d.label} ${d.dom}</span></div>
-        <div class="cv-count">${n}</div>
-        <div class="cv-tally">${tallyHTML(n, 15)}</div>
-        <div class="cv-meta">${meta}</div>
-        <div class="cv-controls">
-          <button type="button" class="bigbtn" data-act="dec" aria-label="Decrease by one">−</button>
-          <button type="button" class="bigbtn" data-act="inc" aria-label="Increase by one">+</button>
-        </div>
-        <button type="button" class="pill cv-reset" data-act="zero">Reset to 0</button>
-      </div>
-      <div class="cv-strip" aria-label="This column across the week">${chips}</div>
-      <button type="button" class="pill cv-done" data-close>Done</button>
-    </div>`;
-
-  if (!cellDlg.open) cellDlg.showModal();
-  bindDlgLock();
-}
-
-function bindDlgLock() {
-  cellDlg.querySelectorAll("input, [data-act]").forEach((n) => {
-    if (S.week.locked) n.disabled = true;
-  });
-}
-
-function closeCellDlg() {
-  if (cellDlg.open) cellDlg.close();
-}
-
-cellDlg.addEventListener("click", (e) => {
-  if (e.target.closest("[data-close]")) return closeCellDlg();
-  const r = cellDlg.getBoundingClientRect();
-  const outside = e.clientX < r.left || e.clientX > r.right ||
-    e.clientY < r.top || e.clientY > r.bottom;
-  if (outside) closeCellDlg();
-});
-cellDlg.addEventListener("close", () => {});
-
 /* ------------------------------------------------------------------ counts */
 
 function setCount(day, col, value) {
@@ -309,20 +242,6 @@ function paintCounts(day, col) {
     td.classList.remove("pop");
     void td.offsetWidth;
     td.classList.add("pop");
-  }
-
-  if (cellDlg.open && Number(cellDlg.dataset.day) === day && cellDlg.dataset.col === col) {
-    const card = cellDlg.querySelector(".cv-card");
-    if (card) {
-      card.classList.toggle("over", over);
-      card.querySelector(".cv-count").textContent = n;
-      card.querySelector(".cv-tally").innerHTML = tallyHTML(n, 15);
-      card.querySelector(".cv-meta").innerHTML = n > goal
-        ? `<b>${n - goal} over</b> the goal of ${goal}`
-        : n === goal ? `on target — goal ${goal}` : `<b>${goal - n}</b> to go · goal ${goal}`;
-    }
-    const chip = cellDlg.querySelector(`.cvchip[data-goto="${day}"] span`);
-    if (chip) chip.textContent = n;
   }
 
   if (barFor && barFor.day === day && barFor.col === col) {
@@ -533,13 +452,6 @@ document.addEventListener("click", (e) => {
     if (act === "inc") bump(day, col, 1);
     else if (act === "dec") bump(day, col, -1);
     else if (act === "zero") setCount(day, col, 0);
-    else if (act === "zoom") openCellDlg(day, col);
-    return;
-  }
-
-  const goto = e.target.closest("[data-goto]");
-  if (goto) {
-    openCellDlg(Number(goto.dataset.goto), cellDlg.dataset.col);
     return;
   }
 
@@ -773,7 +685,7 @@ window.addEventListener("resize", () => {
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    if (cellDlg.open) return closeCellDlg();
+    hideBar();
     closeGoalPop();
     closeWeekList();
     hideBar();
