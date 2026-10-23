@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f4eee2">
+<title>Transform Tracker</title>
+<link rel="stylesheet" href="/static/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23f4eee2'/><path d='M8 6v20M13 6v20M18 6v20M23 6v20M5 22l22-16' stroke='%2325313a' stroke-width='2.2' stroke-linecap='round'/></svg>">
+</head>
+<body>
+<div class="page">
+
+  <header class="top">
+    <div class="brand">
+      <h1>Transform Tracker</h1>
+      <span class="rule"></span>
+    </div>
+    <div class="who">
+      <span id="whoName" class="who-name">Clifford</span>
+      <span id="whoRange" class="who-range">—</span>
+    </div>
+  </header>
+
+  <nav class="weeknav" aria-label="Week navigation">
+    <button id="prevWeek" class="navbtn" aria-label="Previous week">‹</button>
+    <div class="navmid">
+      <button id="weekLabel" type="button" title="Pick a week">—</button>
+      <span id="weekState" class="navstate"></span>
+    </div>
+    <button id="nextWeek" class="navbtn" aria-label="Next week" title="Future weeks are not open yet">›</button>
+    <button id="todayBtn" class="pill" hidden>This week</button>
+  </nav>
+
+  <main>
+    <section class="card gridcard" aria-label="Weekly tally grid">
+      <div id="lockBanner" class="lockbanner" hidden>
+        <span>Closed week — read only.</span>
+        <button id="unlockBtn" class="pill">Unlock</button>
+      </div>
+
+      <table id="grid" class="grid">
+        <colgroup>
+          <col class="c-day">
+          <col span="8" class="c-col">
+          <col class="c-act">
+        </colgroup>
+        <thead>
+          <tr id="goalRow" class="gorow"></tr>
+          <tr id="colRow" class="colrow"></tr>
+        </thead>
+        <tbody id="daysBody"></tbody>
+        <tfoot id="totalsFoot"></tfoot>
+      </table>
+      <button id="undoBadge" class="undobadge" type="button" hidden
+              aria-label="Remove one tally">−</button>
+
+      <p class="gridhint">Tap a cell to add a tally · double-tap or hold to remove one</p>
+
+      <div class="actwrap">
+        <h2 class="sechead">Activity</h2>
+        <div id="activityCards" class="actcards"></div>
+      </div>
+    </section>
+
+    <section class="card weights" aria-label="Week measurements">
+      <div class="whead">
+        <h2>Measurements</h2>
+        <span id="wDelta" class="wdelta"></span>
+      </div>
+      <div class="wgrid">
+        <label>Start weight <span class="unit">lb</span>
+          <input id="weightStart" type="number" step="0.1" inputmode="decimal" placeholder="—">
+        </label>
+        <label>End weight <span class="unit">lb</span>
+          <input id="weightEnd" type="number" step="0.1" inputmode="decimal" placeholder="—">
+        </label>
+        <label>Start waist <span class="unit">in</span>
+          <input id="waistStart" type="number" step="0.1" inputmode="decimal" placeholder="—">
+        </label>
+        <label>End waist <span class="unit">in</span>
+          <input id="waistEnd" type="number" step="0.1" inputmode="decimal" placeholder="—">
+        </label>
+      </div>
+      <p class="carryhint">Opening numbers carry forward from last week's closing numbers.</p>
+    </section>
+
+    <footer class="foot">
+      <a class="pill" href="/api/export.csv">Export CSV</a>
+      <button id="settingsBtn" class="pill">Reminders &amp; settings</button>
+      <button id="lockBtn" class="pill" hidden>Lock week</button>
+      <span class="saved" id="savedDot"></span>
+    </footer>
+  </main>
+</div>
+
+<dialog id="settingsDlg" class="dlg">
+  <form method="dialog" id="settingsForm">
+    <h2>Reminders &amp; settings</h2>
+
+    <label class="row">Your name
+      <input name="name" maxlength="40" autocomplete="given-name">
+    </label>
+
+    <fieldset>
+      <legend>Push notifications</legend>
+      <label class="check"><input type="checkbox" name="notify_enabled"> Send reminders</label>
+      <label class="row">Meal times (HH:MM, comma separated)
+        <input name="meal_times" placeholder="08:00, 12:30, 18:30">
+      </label>
+      <label class="row">Evening activity nudge
+        <input name="evening_time" placeholder="21:00">
+      </label>
+      <label class="row">Timezone
+        <input name="timezone" placeholder="America/Los_Angeles">
+      </label>
+      <label class="row">Telegram bot token
+        <input name="telegram_bot_token" placeholder="123456:ABC..." autocomplete="off">
+      </label>
+      <label class="row">Telegram chat id
+        <input name="telegram_chat_id" placeholder="8989563378" autocomplete="off">
+      </label>
+      <label class="row">…or a webhook URL (receives <code>{"text": "…"}</code>)
+        <input name="webhook_url" placeholder="https://ntfy.sh/my-topic" autocomplete="off">
+      </label>
+      <p class="finehint">Reminders only fire when the day is still blank: meal times when
+        nothing is tallied, the evening nudge when activity is empty.</p>
+    </fieldset>
+
+    <div class="dlgbtns">
+      <button type="button" id="testPush" class="pill">Send test</button>
+      <span class="grow"></span>
+      <button type="button" id="cancelSettings" class="pill">Cancel</button>
+      <button type="submit" class="pill primary">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
